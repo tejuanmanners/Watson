@@ -21,7 +21,7 @@ meta:
     locations?](ask:can%20we%20ship%20from%20Mexico%20to%20worldwide%20locations%3F)
 
     - [can we bill to a customer and delivery it to a different
-    address?](ask:can%20we%20bill%20to%20a%20customer%20and%20delivery%20it%20to%20a%20different%20address%3F) 
+    address?](ask:can%20we%20bill%20to%20a%20customer%20and%20delivery%20it%20to%20a%20different%20address%3F)
 
 
     Example of how Watson can respond to the same question asked in different
@@ -59,7 +59,7 @@ concepts:
       subClassOf: ':Message'
   - name: ':Message'
   - name: ':Showable'
-patterns: "<!--\n\tEnter your NL patterns in this markdown panel. \n\tA pattern consists of natural language text annotated with concepts tags. \n\tFor example,\n\t 'tell me a [joke](demo:Joke)' annotates the demo:Joke concept appropriately\n\t 'show me the [weather](demo:Weather)' annotates the demo:Weather concept appropriately. \n\tWe even support regular expression annotations.\n\t For example, '[`REGEX [0-9]{5}`](demo:ZIPCode)' provides a zip code annotation.\n-->"
+patterns: "asdasdasd<!--\n\tEnter your NL patterns in this markdown panel. \n\tA pattern consists of natural language text annotated with concepts tags. \n\tFor example,\n\t 'tell me a [joke](demo:Joke)' annotates the demo:Joke concept appropriately\n\t 'show me the [weather](demo:Weather)' annotates the demo:Weather concept appropriately. \n\tWe even support regular expression annotations.\n\t For example, '[`REGEX [0-9]{5}`](demo:ZIPCode)' provides a zip code annotation.\n-->"
 ontobot: ''
 endpoints:
   - name: '@fallback'
@@ -68,6 +68,7 @@ endpoints:
       const _ = require('lodash')
       const util = require('util')
       const DiscoveryV1 = require('watson-developer-cloud/discovery/v1')
+
       module.exports.main = async (params) => {
         const question = params.input['@question']
         
@@ -101,7 +102,7 @@ endpoints:
                 data: {
                   name: 'lns:DefaultHelpLink',
                   data: [],
-                  text: 'I\'m sorry. I could not understand your question. You can try to rephrase it or visit our designated help link.'
+                  text: 'I could not understand your question. You can visit the link below for general help.'
                 }
               }
             }
@@ -129,16 +130,20 @@ statics:
           
         render: ->
           R.a null, "https://lenovopub.jiveon.com/"
+
+
       class lns_DocumentData extends PureComponent
         constructor: (props) ->
           super props
           @state = {}
+
         parseDocument = ({content, url}, e) ->
             if _.isEmpty(content)
               content = e
             else
               url = url + e
             {content, url}
+
         @getDerivedStateFromProps: (nextProps, prevState) ->
           urlRegex = /(http:\/\/|https:\/\/)([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:/~+#-]*[\w@?^=%&/~+#-])?/
           document = _.chain(nextProps.data)
@@ -148,6 +153,7 @@ statics:
             .reduce(parseDocument, {content: "", url: ""})
             .value()
           {document}
+
         render: ->
           R.div null,
             @state.document.content

@@ -1,0 +1,165 @@
+version: 6
+meta:
+  name: Lenovo Sales Agent
+  description: >-
+    Internal sales agent for Lenovo. Try out the following questions:
+
+
+    - [what is the difference in BA and
+    FOE?](ask:what%20is%20the%20difference%20in%20BA%20and%20FOE%3F)
+
+    - [when I do a sizing, does it reserve
+    stock?](ask:when%20I%20do%20a%20sizing%2C%20does%20it%20reserve%20stock%3F)
+
+    - [what are the different options I have to upgrade the
+    shipment?](ask:what%20are%20the%20different%20options%20I%20have%20to%20upgrade%20the%20shipment%3F)
+
+    - [where are our manufacturing
+    locations?](ask:where%20are%20our%20manufacturing%20locations%3F)
+
+    - [can we ship from Mexico to worldwide
+    locations?](ask:can%20we%20ship%20from%20Mexico%20to%20worldwide%20locations%3F)
+
+    - [can we bill to a customer and delivery it to a different
+    address?](ask:can%20we%20bill%20to%20a%20customer%20and%20delivery%20it%20to%20a%20different%20address%3F)
+
+
+    Example of how Watson can respond to the same question asked in different
+    ways:
+
+
+    - [what is the difference in BA and
+    FOE?](ask:what%20is%20the%20difference%20in%20BA%20and%20FOE%3F)
+
+    - [distinguish BA and FOE](ask:distinguish%20BA%20and%20FOE)
+
+    - [FOE vs. BA?](ask:FOE%20vs.%20BA%3F)
+
+
+    We can configure a default fallback in the case the user asks a question
+    which cannot be understood by our system:
+
+
+    - [who will win the Warriors game
+    tonight?](ask:who%20will%20win%20the%20Warriors%20game%20tonight%3F)
+secrets:
+  - name: url
+  - name: collection
+  - name: apikey
+  - name: enviornment
+concepts:
+  - name: 'lns:DefaultHelpLink'
+    ontology:
+      subClassOf: ':Showable'
+  - name: 'lns:Document'
+    ontology:
+      subClassOf: ':Showable'
+  - name: 'lns:StaticDocumentation'
+    ontology:
+      subClassOf: ':Message'
+  - name: ':Message'
+  - name: ':Showable'
+patterns: "asdasdasd<!--\n\tEnter your NL patterns in this markdown panel. \n\tA pattern consists of natural language text annotated with concepts tags. \n\tFor example,\n\t 'tell me a [joke](demo:Joke)' annotates the demo:Joke concept appropriately\n\t 'show me the [weather](demo:Weather)' annotates the demo:Weather concept appropriately. \n\tWe even support regular expression annotations.\n\t For example, '[`REGEX [0-9]{5}`](demo:ZIPCode)' provides a zip code annotation.\n-->"
+ontobot: ''
+endpoints:
+  - name: '@fallback'
+    kind: 'nodejs:10'
+    code: |-
+      const _ = require('lodash')
+      const util = require('util')
+      const DiscoveryV1 = require('watson-developer-cloud/discovery/v1')
+
+      module.exports.main = async (params) => {
+        const question = params.input['@question']
+        
+        const discovery = new DiscoveryV1({
+          url: params.secrets.url,
+          version: '2019-03-25',
+          iam_apikey: params.secrets.apikey
+        })
+        
+        const returnDocument = (document) => {
+          return {
+            output: {
+              name: 'lns:StaticDocumentation',
+              type: 'data',
+              tags: ['fallback'],
+              data: {
+                name: 'lns:Document',
+                data: document,
+                text: 'The following resuts might be relevant to your question.'
+              }
+            }
+          }
+        }
+        
+        const returnDefault = () => {
+          return {
+              output: {
+                name: 'lns:StaticDocumentation',
+                type: 'data',
+                tags: ['fallback'],
+                data: {
+                  name: 'lns:DefaultHelpLink',
+                  data: [],
+                  text: 'I could not understand your question. You can visit the link below for general help.'
+                }
+              }
+            }
+        }
+        
+        return await discovery
+          .query({
+            environment_id: params.secrets.enviornment,
+            collection_id: params.secrets.collection,
+            natural_language_query: question
+          })
+          .then((response) => {
+            return !_.isEmpty(response.results)
+              ? returnDocument(response)
+              : returnDefault()
+          })
+      }
+statics:
+  - name: lns-viz.coffee
+    mime: application/vnd.coffeescript
+    text: |-
+      class lns_DefaultHelpLinkData extends PureComponent
+        constructor: (props) ->
+          super props
+          
+        render: ->
+          R.a null, "https://lenovopub.jiveon.com/"
+
+
+      class lns_DocumentData extends PureComponent
+        constructor: (props) ->
+          super props
+          @state = {}
+
+        parseDocument = ({content, url}, e) ->
+            if _.isEmpty(content)
+              content = e
+            else
+              url = url + e
+            {content, url}
+
+        @getDerivedStateFromProps: (nextProps, prevState) ->
+          urlRegex = /(http:\/\/|https:\/\/)([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:/~+#-]*[\w@?^=%&/~+#-])?/
+          document = _.chain(nextProps.data)
+            .get('results.[0].answer')
+            .trimStart("no title ")
+            .split(urlRegex)
+            .reduce(parseDocument, {content: "", url: ""})
+            .value()
+          {document}
+
+        render: ->
+          R.div null,
+            @state.document.content
+            if !_.isEmpty(@state.document.url)
+              R.a
+                href:@state.document.url
+                target: "_blank"
+                @state.document.url
+    frontend: true

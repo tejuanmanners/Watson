@@ -163,3 +163,38 @@ statics:
                 target: "_blank"
                 @state.document.url
     frontend: true
+onlineHelp:
+  - priority: -1
+    title: Lenovo
+    sections:
+      - title: First Line of Defense Questions
+        description: |
+          Supply Chain Visibility Related Questions. 
+            - Questions for our sales, client and business partner organizations to ask to gain insight and visibility into their customer orders.
+            - Dynamic insight and answers from the tool to get current update and status' of orders.
+            
+        examples:
+          - What is a pick and pack and when is it used?
+          - What is the assembly process in MFG?
+          - What is a Ship Support and the dependencies to implement it?
+          - What does it mean that an item/part is book and chase?
+          - >-
+            What is the difference between BA/FOM/FOE and the impact of each
+            one?
+          - >-
+            When an order drop thru the systems, when is the latest they can be
+            cancelled?
+          - What is the wip meaning in MFG?
+          - How is demand related to production?
+          - How can I assure that another order does not take my order supply?
+          - What are the reasons for shorts or de-commits?
+          - What is an offload and when is it needed?
+          - How can I know if a SW is Physical or virtual?
+          - What does it mean to have a "bottleneck" in MFG?
+          - What is a MFG So order?
+          - >-
+            What are the differences between to pull in or to push out an order
+            commit?
+          - Where is te dock in the plant?
+          - FG Meaning?
+          - Differences between Production lead time and testing cycle time?

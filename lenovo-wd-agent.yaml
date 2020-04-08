@@ -42,7 +42,13 @@ meta:
 
     - [who will win the Warriors game
     tonight?](ask:who%20will%20win%20the%20Warriors%20game%20tonight%3F)
+  bundler: webpack
+  protected: true
 secrets:
+  - name: tenantId
+  - name: customAdvisorUrl
+  - name: clientSecret
+  - name: uniqueId
   - name: url
   - name: collection
   - name: apikey
@@ -59,9 +65,221 @@ concepts:
       subClassOf: ':Message'
   - name: ':Message'
   - name: ':Showable'
-patterns: "asdasdasd<!--\n\tEnter your NL patterns in this markdown panel. \n\tA pattern consists of natural language text annotated with concepts tags. \n\tFor example,\n\t 'tell me a [joke](demo:Joke)' annotates the demo:Joke concept appropriately\n\t 'show me the [weather](demo:Weather)' annotates the demo:Weather concept appropriately. \n\tWe even support regular expression annotations.\n\t For example, '[`REGEX [0-9]{5}`](demo:ZIPCode)' provides a zip code annotation.\n-->"
+  - name: ':All'
+  - name: ':Relation'
+  - name: 'flod:ManufacturingOrderId'
+  - name: 'flod:ManufacturingOrders'
+    ontology:
+      isListOf: 'flod:ManufacturingOrder'
+      subClassOf: ':Showable'
+      isSpellAs: manufacturing Orders
+  - name: 'flod:ManufacturingOrder'
+    ontology:
+      subClassOf: ':Showable'
+      isSpellAs: manufacturing Order
+  - name: 'flod:Status'
+    ontology:
+      subClassOf: ':Showable'
+  - name: 'flod:MOs'
+patterns: >-
+  - show me the [manufacture order](flod:ManufacturingOrder)
+
+  - show me all [manufacture orders|manufacturing
+  orders](flod:ManufacturingOrders)
+
+  - show me [manufacturing order](flod:ManufacturingOrder)
+
+  - show me the [status](flod:Status) [of](:Relation) [manfacturing
+  order](flod:ManufacturingOrder)
+
+  - [`REGEX [a-zA-Z0-9]{12}~[a-zA-Z0-9]{7,}`](flod:ManufacturingOrderId)
 ontobot: ''
+actions:
+  - name: 'flod:GetManufacturingOrderStatus'
+    signature: >-
+      flod:ManufacturingOrder (flod:Status (flod:ManufacturingOrderId (optional
+      :Relation))) -> data flod:Status
+    kind: 'nodejs:10'
+    code: |-
+      const {NLToken, Params, Result} = require('eba')
+      const advisor = require('./lenovo-client.js')
+      module.exports.main = async (params) => {
+        // unwrap actions params
+        const p = new Params(params)
+        const orderId = await p.get('flod:ManufacturingOrderId')
+        const code = orderId.code || orderId
+        console.log(orderId)
+        const question = await p.get('@question')
+        
+        // get advisor response data
+        const command = `proc_manufacture_order_status(moNumber:"${code}")`
+        const response = await advisor.getAdvisorResponse(params.secrets, params.storage, question, command)
+        
+        // construct NLG meta
+        const meta = new NLToken('flod:Status')
+          .addProperty('flod:For', new NLToken('flod:ManufacturingOrder')
+            .addProperty(':WithId', new NLToken('nlg:PlainText', code)))
+        
+        // return result
+        return new Result()
+          .setMeta('flod:Status', meta)
+          .setData('flod:Status', response)
+      }
+  - name: 'flod:GetManufacturingOrders'
+    signature: 'flod:ManufacturingOrders (optional :All) -> data flod:ManufacturingOrders'
+    kind: 'nodejs:10'
+    code: |-
+      const {NLToken, Params, Result} = require('eba')
+      module.exports.main = async (params) => {
+        const p = new Params(params)
+        const question = p.input['@question'].data
+        
+        // return extendable lazy data wrapper
+        const orders = p.makeLazyData({method: 'getManufacturingOrders', question: question})
+        return new Result()
+          .setData('flod:ManufacturingOrders', orders)
+          .setMeta('flod:ManufacturingOrders', new NLToken('flod:ManufacturingOrders'))
+      }
 endpoints:
+  - name: '@force'
+    kind: 'nodejs:10'
+    code: |-
+      const {getAdvisorResponse, createCommand} = require('./lenovo-client.js')
+      const {GenericLazyExecutor, Result} = require("eba")
+      const _ = require("lodash")
+
+      const logThenReturn = async (f) => {
+        const startTime = Date.now()
+        const result = await f()
+        console.log(`time to execute getAdvisorResponse: ${Date.now() - startTime}`)
+        return result
+      }
+
+      class Executor extends GenericLazyExecutor {
+        constructor(params) {
+          super(params)
+          this.secrets = params.secrets
+          this.storage = params.storage
+        }
+        
+        load(params) {
+          console.log("forceData: ", params)
+          const methods = { 
+            'getManufacturingOrders': this.getManufacturingOrders
+          }
+          return (methods[params.method]) ?
+            methods[params.method].call(this, params) : null
+        }
+        
+        async getManufacturingOrders(source) {
+          const props = _.omit(source, ['question', 'method'])
+          const command = createCommand(props, 'manufacture')
+          console.log(command)
+          console.log(source.question)
+          return await logThenReturn(async () => await getAdvisorResponse(this.secrets, this.storage, source.question, command))
+        }
+        
+      }
+      module.exports.main = async (params) => {
+        const realData = await new Executor(params).force(params.input);
+        return new Result(realData)
+      }
+  - name: '@react'
+    kind: 'nodejs:10'
+    code: "module.exports.main = (params) => {\r\n  /* places contextual node into information space.\r\n    Note: data child added as unused concepts are removed from information space by design */\r\n  if (params.input.repr.name === 'start') {\r\n    return {\r\n      output: {\r\n        type: 'data',\r\n        name: 'flod:Context',\r\n        data: '',\r\n        tags: ['keep']\r\n      }\r\n    }\r\n  }\r\n  return {}\r\n}"
+    active: true
+  - name: '@api'
+    kind: 'nodejs:10'
+    code: |-
+      const advisor = require('./lenovo-client')
+      const {Result} = require('eba')
+      module.exports.main = async (params) => {
+        const command = params.input.command
+        console.log('@api endpoint command - ' + command)
+        
+        const response = await advisor.getAdvisorResponse(params.secrets, params.storage, null, command)
+        return new Result(response)
+      }
+  - name: '@annotate'
+    kind: 'nodejs:10'
+    code: |-
+      const advisor = require('./lenovo-client.js')
+      const eba     = require('eba')
+      const _       = require('lodash')
+
+      module.exports.main = async (params) => {
+        const question = params.input.text
+        
+        console.log("Question for annotation service:", question)
+        
+        const {entityValues} = await advisor.getEntities(params.secrets, params.storage, null, question)
+        const sortedTokens = _(eba.flattenTree(params.input.tokens)).map('token').sortBy('id').value()
+
+        const getMatches = (start, end) => {
+          var response = []
+          for (i = 0; i < entityValues.length; i++) {
+            var entity = entityValues[i];
+            var firstTokenIndex = -1;
+            var lastTokenIndex = -1;
+            for (j = 0; j < sortedTokens.length; j++) {
+              const token = sortedTokens[j];
+              if (token.start === entity.spans[0][0] && entity.spans[0][0] <= start)
+                firstTokenIndex = j
+              if ((token.start + token.length ) === entity.spans[0][1] && entity.spans[0][1] >= end)
+                lastTokenIndex = j
+            }
+            if (firstTokenIndex > -1 && lastTokenIndex > -1) {
+              response.push(entity) 
+            }
+          }
+          return response
+        }
+
+        const namedEntityTree = eba.mapTree(params.input.tokens, (tt) => {
+          const start = tt.token.start
+          const end   = start + tt.token.length
+          const matches = getMatches(start, end)
+          _.forEach(matches, (match) => {
+            const text = _.find(match.values, (value) =>  _.includes(_.toLower(value), _.toLower(tt.token.form)))
+            const data = { code: match.code, text: text}
+            tt = eba.insertAnnotation(tt, match.name, 1.0, data)
+          })
+
+          return tt
+        })
+
+        return new eba.Result(namedEntityTree)
+      } 
+  - name: '@start'
+    kind: 'nodejs:10'
+    code: |-
+      const {Result} = require('eba')
+      module.exports.main = (params) => {
+        var channel = params.input.claims['cca:partner']
+        var uniqueId = getUniqueId(params.input.claims, channel)
+        var tenantId = getTenantId(params.input.claims, channel)
+        
+        console.log('Unique Id - ' +uniqueId)
+        console.log('Tenant id - ' + tenantId)
+        console.log('Channel - ' + channel)
+        return new Result().store('uniqueId', uniqueId).store('tenantId', tenantId).store('channel', channel).store('agentName', params.agent)
+      }
+
+      const getTenantId = (claims, channel) => {
+          if (channel == 'Workspace') {
+              return claims['sci:tenant']['_id']
+          } else if (channel == 'CUI') {
+              return claims['sci:tenant']['_id']
+          }
+      }
+
+      const getUniqueId = (claims, channel) => {
+          if (channel == 'Workspace') {
+              return claims["wws:ibmUniqueID"]
+          } else if (channel == 'CUI') {
+              return claims["sub"]
+          }
+      }
   - name: '@fallback'
     kind: 'nodejs:10'
     code: |-
@@ -120,7 +338,470 @@ endpoints:
               : returnDefault()
           })
       }
+    active: true
 statics:
+  - name: manufacturingOrders.coffee
+    mime: application/vnd.coffeescript
+    text: |-
+      {flod_EntityData} = require('./flod.coffee')
+
+      export class flod_ManufacturingOrdersData extends flod_EntityData
+        constructor: (props) ->
+          super(props)
+          @state = { showSummary: true, showDownload: false, showAttachments: true, showTable: false }
+        
+        renderTable: (data) =>
+          React.createElement Table,
+            title: R.h2 null, "Manufacturing Orders"
+            items: @props.data.data
+            config:
+              "id":
+                visible: true
+              "customer":
+                visible: true
+              "product":
+                visible: true
+              "numberOfUnits":
+                visible: true
+              "operation":
+                visible: false
+            columns: [
+              ["MO", "id", (moId) ->
+                R.span null,
+                  R.a
+                    href: "#"
+                    onClick: (e) =>
+                      e.preventDefault()
+                      bridge.trigger "ask", 'Show me status of manufacturing order ' + moId
+                    moId
+              ]
+              ["Customer", "customer"]
+              ["Product", "product"]
+              ["Unit count", "numberOfUnits"]
+              ["Operation", "operation"]
+            ]
+            configKey: "lenovo_ManufacturingOrdersData"
+
+      export class flod_ManufacturingOrdersContent extends PureComponent
+        render: ->
+          if (@props.data.data != null)
+            React.createElement Table,
+              title: R.h2 null, "Manufacturing Orders"
+              items: @props.data.data
+              columns: [
+                ["MO", "id", (moId) ->
+                  R.span null,
+                    R.a
+                      href: "#"
+                      onClick: (e) =>
+                        e.preventDefault()
+                        bridge.trigger "ask", 'Show me status of manufacturing order ' + moId
+                      moId
+                ]
+                ["Customer", "customer"]
+                ["Product", "product"]
+                ["Unit Count", "numberOfUnits"]
+                ["Operation", "operation"]
+              ]
+          else
+            return null
+    active: true
+    frontend: true
+  - name: flod.coffee
+    mime: application/vnd.coffeescript
+    text: |-
+      export class flod_EntityData extends PureComponent
+        constructor: (props) ->
+          super props
+          @state = { showSummary: true, showDownload: false, showAttachments: true, showTable: false }
+        
+        toArrayBuffer: (base64) =>
+          buffer = new ArrayBuffer(base64.length)
+          view = new Uint8Array(buffer)
+          _.forEach base64, (data, index) =>
+            view[index] = base64.charCodeAt(index) & 0xFF;
+          buffer
+
+        download: (attachment, name) =>
+          arrayBuffer = @toArrayBuffer(atob(attachment))
+          if (name.endsWith('csv'))
+            blob = new Blob([arrayBuffer], {type: 'text/csv;'})
+          else if (name.endsWith('xlsx'))
+            blob = new Blob([arrayBuffer], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;'})
+          saveAs(blob, name)
+        
+        collapseSection: (e, section) ->
+          e.preventDefault()
+          if section == "summary"
+            @setState {showSummary:!@state.showSummary}
+          else if section == "attachments"
+            @setState {showAttachments:!@state.showAttachments}
+          else if section == "table"
+            @setState {showTable:!@state.showTable}
+        
+        renderContent: (content) ->
+          if content?
+            text = content
+            if _.includes(content, "Complete list")
+              text = _.get(_.split(content, "Complete list"), 0)
+            React.createElement Markdown, {text}
+
+        renderTable: (data) ->
+          R.div 
+
+        renderAttachments: (attachments) ->
+          render = (items, search) =>
+            R.ul null,
+              _.map items, ({content, filename}) =>
+                R.li key: filename,
+                  R.div 
+                    className: "file-container"
+                    onMouseOver: (e) => @setState showDownload:true
+                    onMouseOut: (e) => @setState showDownload:false
+                    R.div 
+                      className: "icon-container"
+                      onClick: (e) =>
+                        e.preventDefault()
+                        e.stopPropagation()
+                        @download(content, filename)
+                      R.button className: "btn btn-link",
+                        if filename.endsWith('csv') then R.span className:"glyphicon glyphicon-file-csv" else R.span className:"glyphicon glyphicon-file-excel"
+                    R.div className: "name-container",
+                      R.p null, filename
+                    
+          if attachments?
+            React.createElement List,
+              items: attachments
+              renderList: render
+        render: =>
+          rootClass = if !@state.showAttachments then "root-container" else null
+          R.div className: rootClass,
+            if @props.data.attachments != null || @props.data.data != null
+              R.div className: "summary-header",
+                R.a 
+                  style: paddingBottom: 10
+                  className: "entity-section-header arrow-right"
+                  onClick: (e) => @collapseSection(e, "summary")
+                  "Summary"
+                R.button className: "btn btn-link summary-btn",
+                  if (@state.showSummary)
+                    R.span 
+                      className: "glyphicon glyphicon-chevron-down"
+                      onClick: (e) => @collapseSection(e, "summary")
+                  else
+                    R.span 
+                      className: "glyphicon glyphicon-chevron-up"
+                      onClick: (e) => @collapseSection(e, "summary")
+            if @state.showSummary
+              R.div className:"section-container",
+                @renderContent(@props.data.content)
+              
+            if @props.data.attachments != null
+              R.div className: "attachments-header",
+                R.p null
+                R.a 
+                  className: "entity-section-header"
+                  onClick: (e) => @collapseSection(e, "attachments")
+                  "Attachments"
+                R.button className: "btn btn-link attachments-btn",
+                  if (@state.showAttachments)
+                    R.span
+                      className: "glyphicon glyphicon-chevron-down"
+                      onClick: (e) => @collapseSection(e, "attachments")
+                  else
+                    R.span 
+                      className: "glyphicon glyphicon-chevron-up"
+                      onClick: (e) => @collapseSection(e, "attachments")
+            if @state.showAttachments && @props.data.attachments != null
+              R.div className: 'section-container',
+                @renderAttachments(@props.data.attachments)
+                
+            if @props.data.data != null
+              R.div className: "table-header",
+                R.p null
+                R.a 
+                  className: "entity-section-header"
+                  onClick: (e) => @collapseSection(e, "table")
+                  "Data"
+                R.button className: "btn btn-link table-btn",
+                  if (@state.showTable)
+                    R.span
+                      className: "glyphicon glyphicon-chevron-down"
+                      onClick: (e) => @collapseSection(e, "table")
+                  else
+                    R.span 
+                      className: "glyphicon glyphicon-chevron-up"
+                      onClick: (e) => @collapseSection(e, "table")
+
+            if @props.data.data != null && @state.showTable
+              R.div className: 'section-container',
+                @renderTable()
+            else if @props.data.data != null
+              R.div className: 'section-container'
+              
+      ### 
+        code below makes all entities to reuse the visualizer above,
+       this is done by modifying global window objects visualizer keys, e.g.
+       lenovo_SalesOrdersData -> lenovo_EntityData which runs the stateless visualizer above
+      ###
+      lenovoEntities = [
+        'SalesOrders',
+        'Status',
+        'Inventory',
+        'SubstituteParts',
+        'Health',
+        'Units',
+        'ManufacturingLoad',
+        'ASNReport',
+        'ASNReports',
+        'AdvisorUsage'
+      ]
+
+      # point all visualizers to common entity visualizer above
+      _.forEach lenovoEntities, (entity) => 
+        window["flod_#{entity}Data"] = flod_EntityData
+    frontend: true
+  - name: flod.css
+    mime: text/css
+    text: |-
+      .name-container {
+        float: left;
+        width: 50%;
+        padding: 10px;
+        padding-left: 0px;
+      }
+
+
+      .download-container {
+        float: right;
+        width: 15%;
+        padding: 10px;
+        padding-top:6px;
+      }
+
+      .file-container {
+        display: block;
+        float: left;
+        border: 1px solid;
+        border-color: #ECECEC;
+        margin-bottom: 12px;
+        border-radius: 6px;
+        width: 100%;
+        height: 40px;
+      }
+
+
+      .icon-container {
+        float: left;
+        width: 15%;
+        padding: 10px;
+        padding-top: 6px;
+      }
+
+      .glyphicon-file-excel {
+        font-size: 20px;
+      }
+
+      .glyphicon-import {
+        font-size: 12px;
+      }
+
+      .entity-section-header {
+        font-size: 15px;
+        display: block;
+      }
+
+      .summary-header {
+        display:block;
+      }
+
+      .summary-header a {
+        float:left;
+      }
+
+      .attachments-header {
+        display:block;
+        clear:left;
+      }
+
+      .attachments-header a {
+        float:left;
+      }
+
+      .table-header {
+        display:block;
+        clear:left;
+      }
+
+      .table-header a {
+        float:left;
+      }
+
+      .glyphicon-chevron-down {
+        float: left;
+        font-size: 10px;
+      }
+
+      .glyphicon-chevron-up {
+        float: left;
+        font-size: 10px;
+      }
+
+      .summary-btn {
+        float: right;
+      }
+
+      .attachments-btn {
+        float:right;
+      }
+
+      .table-btn {
+        float:right;
+      }
+
+      .root-container {
+        padding-bottom: 20px;
+      }
+
+      .section-container {
+        display: inline-block;
+        width:100%;
+      }
+    frontend: true
+  - name: lenovo-client.js
+    mime: text/javascript
+    text: >-
+      const request = require('request-promise-native')
+
+      const _ = require('lodash')
+
+
+      const getAdvisorResponse = async (secrets, storage, question, command) =>
+      {
+        console.log(`question: ${question}`)
+        console.log(`command: ${command}`)
+        const {customAdvisorUrl, clientSecret, uniqueId, tenantId} = secrets
+        const {channel} = storage
+        const options = {
+          method: 'POST',
+          uri: customAdvisorUrl + '/eba/message',
+          body: {
+            originalMessage : question,
+            processCommand : command,
+            uniqueId: uniqueId,
+            tenantId: tenantId,
+          },
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'X-IBM-Client-Secret': clientSecret
+          },
+          json: true
+        }
+        const res = await request(options)
+        console.log(JSON.stringify(res))
+        return res
+      }
+
+
+      const getEntities = async (secrets, storage, tokens, question) => {
+        const {customAdvisorUrl, clientSecret, uniqueId, tenantId} = secrets
+        const options = {
+          method: 'POST',
+          uri: customAdvisorUrl + '/eba/entities',
+          body: {
+            uniqueId: uniqueId,
+            tenantId: tenantId,
+            tokens : tokens,
+            question: question
+          },
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'X-IBM-Client-Secret':clientSecret
+          },
+          json: true
+        }
+        const res = await request(options)
+        return res
+      }
+
+
+
+
+      const createCommand = (props, type) => {
+        
+        /* inner functions, used only incommand creation scrop */
+        const hasProps = (reqs, source) => {
+          return _.every(reqs, _.partial(_.has, source))
+        }
+        
+        const assignParams = (params) => {
+          return (!_.isEmpty(params)) ? `(${_(params).toPairs().map(xs => `${xs[0]}:"${xs[1]}"`).join(', ')})` : _.stubString()
+        }
+        
+        const createManufactureCommand = (props) => {
+          console.log(`command props: ${JSON.stringify(props)}`)
+          console.log(`hasProps aged: ${hasProps(['aged'], props)}`)
+          if (hasProps(['lateStart'], props)) {
+            return `proc_manufacture_late_start_operation${assignParams(_.omit(props, ['lateStart']))}`
+          } else if (hasProps(['aged'], props)) {
+            return `proc_aged_manufacture_order${assignParams(_.omit(props, ['aged']))}`
+          } else if(hasProps(['late'], props)) {
+            return `proc_late_manufacture_order_based_on_sla${assignParams(_.omit(props, ['aged']))}`
+          } else if(hasProps(['operation'], props)) {
+            return `proc_find_manufacture_order_by_operation${assignParams(props)}`
+          } else {
+            console.log('else')
+            return `proc_list_manufacture_order${assignParams(props)}`
+          }
+        }
+        
+        /* immediately invoked type dictionary which outputs op code */
+        return {
+          'manufacture': createManufactureCommand
+        }[type](props)
+      }
+
+
+      const getReferenceType = (segment) => {
+        if (segment === 'lenovo:CustomerSegment') 
+          return 'Customer'
+        else if (segment === 'lenovo:MonthSegment')
+          return 'Month'
+        else if (segment === 'lenovo:WeekSegment')
+          return 'Week'
+        else
+          return null;
+      }
+
+
+      // exports
+
+      module.exports.getAdvisorResponse   = getAdvisorResponse
+
+      module.exports.createCommand        = createCommand
+
+      module.exports.getEntities          = getEntities
+
+      module.exports.getReferenceType     = getReferenceType
+    backend: true
+  - name: utils.js
+    mime: text/javascript
+    text: |-
+      const _ = require('lodash')
+      /* extends concept's lazy data wrapper with new props */
+      const extendLazyData = (helper, lazyData, props) => {
+        const lazyDataExtension = _.extend(_.get(lazyData, 'source.source'), props)
+        return helper.makeLazyData(lazyDataExtension)
+      }
+      /* removes milliseconds from ISO string but preserves 'Z' */
+      const formatDate = (timeframe) => {
+        return new Date(timeframe).toISOString().split('.')[0] + 'Z'
+      } 
+      module.exports.extendLazyData = extendLazyData
+      module.exports.formatDate = formatDate
+    backend: true
   - name: lns-viz.coffee
     mime: application/vnd.coffeescript
     text: |-
@@ -162,6 +843,7 @@ statics:
                 href:@state.document.url
                 target: "_blank"
                 @state.document.url
+    active: true
     frontend: true
 onlineHelp:
   - priority: -1
@@ -198,14 +880,3 @@ onlineHelp:
           - Where is te dock in the plant?
           - FG Meaning?
           - Differences between Production lead time and testing cycle time?
-          - What does QI mean?
-          - How does a Production Plan work?
-          - How does a False Record in Inventory happen?
-          - What does a STO mean?
-          - 'What are the differences between SBB, FC''s and option parts?'
-          - Why are orders in CTB for 3 days after the order drops?
-          - What are the differences between CTO & Custom models?
-          - 'What are the differences between PSSD, RPSSD & PSD?'
-          - What is the difference between LOD & LSD?
-          - What is the difference between ETD & ETA?
-          - What are the shipping points for LA (SoS plants)?

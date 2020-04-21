@@ -289,7 +289,6 @@ endpoints:
 
       module.exports.main = async (params) => {
         const question = params.input['@question']
-        
         const discovery = new DiscoveryV1({
           url: params.secrets.url,
           version: '2019-03-25',
@@ -805,7 +804,7 @@ statics:
   - name: lns-viz.coffee
     mime: application/vnd.coffeescript
     text: |-
-      class lns_DefaultHelpLinkData extends PureComponent
+      export class lns_DefaultHelpLinkData extends PureComponent
         constructor: (props) ->
           super props
           
@@ -813,7 +812,7 @@ statics:
           R.a null, "https://lenovopub.jiveon.com/"
 
 
-      class lns_DocumentData extends PureComponent
+      export class lns_DocumentData extends PureComponent
         constructor: (props) ->
           super props
           @state = {}
@@ -836,6 +835,8 @@ statics:
           {document}
 
         render: ->
+          console.log "lns_DocumentData"
+          console.log { data: @props.data }
           R.div null,
             @state.document.content
             if !_.isEmpty(@state.document.url)
